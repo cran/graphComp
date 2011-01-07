@@ -1,0 +1,599 @@
+% \VignetteIndexEntry{An R Package for Visual Graph Comparison}
+% \VignetteKeywords{graph, comparison}
+% \VignetteDepends{Rgraphviz, rpanel}
+%\VignettePackage{graphComp}
+
+\newcommand{\Robject}[1]{{\texttt{#1}}}
+\newcommand{\Rfunction}[1]{{\texttt{#1}}}
+\newcommand{\Rpackage}[1]{{\textit{#1}}}
+\newcommand{\Rclass}[1]{{\textit{#1}}}
+\newcommand{\Rfunarg}[1]{{\textit{#1}}}
+
+
+\documentclass[12pt]{article}
+
+\usepackage[%
+baseurl={http://www.bioconductor.org},%
+pdftitle={Visual comparison of graphs},%
+pdfauthor={Khadija El Amrani},%
+pdfsubject={graphComp},%
+pdfkeywords={Bioconductor},%
+plainpages,pdftex]{hyperref}
+
+\usepackage{url}
+\usepackage{natbib}
+\usepackage{tabularx}
+\usepackage{longtable}
+
+%\SweaveOpts{eps=FALSE}
+
+\author{Khadija El Amrani
+ 	\footnote{Division of Biometrics and Bioinformatics, IBE, University of Munich, 81377 Munich, Germany}
+	\footnote{Package maintainer ,Email: \texttt{Khadija.Amrani@campus.lmu.de}}
+        \and Ulrich Mansmann$^*$
+}
+
+
+\title{Description of the \Rpackage{graphComp} package: Visual comparison of graphs on the same node set}
+
+\begin{document}
+
+\maketitle \tableofcontents \newpage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Abstract}
+%is part of the Bioconductor\footnote{\url{http://www.bioconductor.org/}} 
+%\cite{Gentleman2004} project.Thepackage provides
+The \Rpackage{graphComp} package for R \cite{Team2007} provides functions for visual comparison of graphs. 
+It is designed to compare graphs defined on the same set of nodes.
+
+This vignette demonstrates how the package \Rpackage{graphComp} can be used. For this purpose, a comparison of  
+estimated graphs with the packages \Rpackage{GeneNet} \cite{Schaefer2008}, \Rpackage{pcalg}\cite{Kalisch2009}
+and \Rpackage{glasso} \cite{Friedman} is performed. These packages are available at \textit{the Comprehensive R Archive Network} 
+(CRAN) at \url{http://cran.r-project.org}.  
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+The \Rpackage{graphComp} package contains functions for visual graph comparison. The package is designed to compare graphs defined on the same
+set of nodes. Given two \Rclass{graphNEL} graphs, the \Rpackage{graphComp} package enables the visualization and 
+comparison of the input graphs in a merged graph, and allows the analyst to visually compare the differences and similarities
+of the graphs that are distinguished by colors. In order to compare the proportion of degrees of nodes in both graphs, the
+nodes are represented as pie charts.
+
+For a realistic estimation of graphs a real data set from ALL data is used. The data are available in the R package \Rpackage{ALL}. 
+To reduce computation time a small data set to B-cell ALL is selected.
+<<data>>=
+library(ALL)
+data("ALL")
+ALL
+@
+The \Robject{ALL} data consist of micorarrays from 128 different individuals with acute lymphoblastic leukemia (ALL).
+There are 95 samples with B-cell ALL and 33 with T-cell ALL. These are different tissues and
+quite different diseases. A number of additional covariates is available, but not used in this example. The focus here will be on B-cell ALL tumors.
+The data have been normalized (using rma \cite{Irizarry2003}) and are presented in the form of an
+'ExpressionSet' object. The data set is available in the package \Rpackage{ALL} and more information can be
+found in \cite{Chiaretti2004}.
+
+To select the corresponding data set to B-cell ALL the information from the annotation slot 'BT' is used.
+<<datasub>>=
+BcellIds <- grep("^B", ALL$BT)
+ALL_B <- ALL[, BcellIds]
+dim(ALL_B)
+@
+\subsection{Nonspecific filtering}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+The function \Rfunction{nsFilter()} is available in the package \Rpackage{genefilter}. It identifies and removes features that appear
+to be less informative. Use cases for this function are: variable selection for subsequent sample clustering or classification tasks; 
+independent filtering of features used in subsequent hypothesis testing, with the aim of increasing the detection rate.
+<<nspfil>>=
+library(genefilter)
+library(hgu95av2.db)
+nALL_B <- nsFilter(ALL_B)
+dim(nALL_B$eset)
+@
+
+\subsection{Gene selection}
+To reduce further computation time, for clearness and for biological interpretation, only
+some genes belonging to the p53 signaling pathway will be analysed. This pathway play crucial roles in tumor development. It 
+is available at the KEGG database and has the ID 'hsa04115'. The following code extracts the probe names for the p53 signaling 
+pathway from the KEGG database and builds an expression matrix with the selected probes.
+<<genes>>=
+library(hgu95av2.db)
+xx <- as.list(hgu95av2PATH2PROBE)
+ids <- xx$"04115"
+mat_B <- exprs(nALL_B$eset)
+ids <- ids[ids %in% rownames(mat_B)]
+mat_B <- mat_B[ids,]
+dim(mat_B)
+@
+The following function is used to translate the probe names into gene names:
+<<get.genes>>=
+get.genes <- function(IDs=c('')){
+	result <- 1:length(IDs)
+	require(hgu95av2.db)
+	xx <- as.list(hgu95av2SYMBOL)
+	for(i in 1:length(IDs)){
+		if(is.na(xx[[IDs[i]]])==TRUE) {
+			result[i] <- IDs[i]
+		} else {
+			result[i] <- xx[[IDs[i]]]
+		}
+	}
+	return(result)
+}
+genes <- get.genes(rownames(mat_B))
+length(rownames(mat_B))
+length(genes)
+@
+In this example each gene is represented by one probe set, therefore the rownames of the matrix could be replaced by genes. If 
+there is at least one gene that is represented by more than one probe set, you should estimate the probe set graph and translate it
+in gene graph.   
+<<rownamesChange>>=
+rownames(mat_B) <- get.genes(rownames(mat_B))
+@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Estimating Graphs}
+\label{sec:EstimateGr}
+In the following, the gene-graphs to the data set will be estimated with the above mentioned methods.
+
+\subsection{GeneNet}
+The input data must be arranged in a matrix where columns correspond to genes and rows correspond to individual measurements.
+For this purpose, the matrix should be transposed. Then the partial correlation matrix is estimated with the function 
+\Rfunction{ggm.estimate.pcor()}. An edge is considered to be "significant" if the probability of an edge to 
+be "present" is larger than a given value. A graph object must be generated containing all significant edges. The function \Rfunction{geneNetGraph()}
+given below gets a matrix and a value \textit{pval} (between 0 and 1) as parameters. It returns the estimated graph to the
+given matrix with \Rpackage{GeneNet} \cite{Schaefer2008}. The estimated graph is visualized in Figure~\ref{fig:GeneNet}.
+<<geneNetGraph>>=
+geneNetGraph <- function(matrix, pval){
+   require(GeneNet)
+   corr <- ggm.estimate.pcor(t(matrix))
+   results <- ggm.test.edges(corr, plot=F)
+   sig <- results$prob>pval
+   geneNetGr <- ggm.make.graph(results[sig, ], colnames(t(matrix)))
+   return(geneNetGr)
+}
+@
+We use the value 0.8 for the estimation of the graph.
+<<GeneNet, fig=FALSE, results=hide>>=
+geneNetGr <- geneNetGraph(mat_B,pval=0.8)
+require(Rgraphviz)
+plot(geneNetGr, main="B-cell ALL")
+
+@
+\begin{figure}[htp]
+<<GeneNet, fig=T, echo=F>>=
+plot(geneNetGr, main="B-cell ALL")
+@
+\caption{The estimated graph with \Rpackage{GeneNet}}
+\label{fig:GeneNet}
+\end{figure}
+
+\subsection{PC-Algorithm}
+The PC-Algorithm is a method for estimating the skeleton of a very high-dimensional Directed Acyclic Graph (DAG)
+with corresponding Gaussian distribution \cite{Kalisch2009}. The skeleton of a DAG G
+is the undirected graph obtained from G by substituting undirected edges for directed
+edges. \Robject{alpha} is a parameter of significance level for the individual partial correlation tests. 
+The following function \Rfunction{pcGraph()} returns the estimated graph with the PC-Algorithm. This graph is visualized in Figure~\ref{fig:pcAlgo}.
+<<pcalgo, fig=F>>= 
+pcGraph <- function(mat, alpha){
+require(pcalg)
+pcGr <- pcAlgo(t(mat), alpha=alpha)
+pcGr <- pcGr@graph
+nodes(pcGr) <- rownames(mat)
+return(pcGr)
+}
+pcGr <- pcGraph(mat_B, alpha=0.05)
+plot(pcGr, main="B-cell ALL")
+@
+\begin{figure}[htp]
+<<pcalgo, fig=T, echo=F>>=
+plot(pcGr, main="B-cell ALL")
+@
+\caption{The estimated graph with PC-Algorithm}
+\label{fig:pcAlgo}
+\end{figure}
+
+\subsection{glasso}
+In the following, a function \Rfunction{lassoGraph()} is given. This function returns for a given matrix the estimated graph with 
+\Rfunction{glasso()}. The function \Rfunction{cov()} returns the corresponding covariance matrix for the given matrix.
+The graph estimated with the glasso-Algorithm \cite{Friedman} is visualized in Figure~\ref{fig:glasso}.
+<<lassoGraph, keep.source=TRUE>>=
+lassoGraph <- function(matrix, rho){
+library(glasso)
+c <- cov(t(matrix))
+gl <- glasso(c, rho=rho, zero=NULL, thr=1.0e-4,
+      maxit=1e4, approx=F, penalize.diagonal=TRUE)
+wi <- gl$wi
+for(i in 1:length(wi[1,])){
+for(j in 1:length(wi[,1])){
+if(wi[j,i]!=0) {
+wi[j,i]=1
+}
+
+}
+}
+diag(wi)=0
+g_las <- as(wi,"graphNEL")
+nodes(g_las) <- rownames(matrix)
+return(g_las)
+}
+@
+The following code chunk plots the estimated graph.
+<<glasso, fig=FALSE>>=
+lassoGr <- lassoGraph(mat_B,0.15)
+plot(lassoGr, main="B-cell ALL")
+@
+\begin{figure}[htp]
+<<glasso, fig=T, echo=F>>=
+plot(lassoGr, main="B-cell ALL")
+@
+\caption{The estimated graph with \Rpackage{glasso}}
+\label{fig:glasso}
+\end{figure}
+
+\section{Function Description}
+\subsection{Function: compare2Graphs()}
+The \Rfunction{compare2Graphs()} function is a routine to compare two graphs on the same node set. The function needs at least the 
+mandatory parameter \Robject{graphList}, this is a list of two \Rclass{graphNEL} graphs. For more details about the optional 
+parameters, see the help files. The function returns an \Rclass{Ragraph} object that can be further used as input parameter to the 
+following subfunctions: \Rfunction{get.edges()}, \Rfunction{get.hubs()} and \Rfunction{getMixed.hubs()} to get edges or hubs.
+Additionally the function plots the graphs in a merged graph where edges of both graphs and common edges are distinguished by colors. It prints 
+the number of edges to the used colors and the total number of edges in the comparative graph. 
+In order to compare the proportion of degrees of nodes in both graphs, the nodes are represented as pie charts using the function \Rfunction{pieGlyph()}
+from the package \Rpackage{Rgraphviz} \cite{Gentry}. This representation
+of nodes is used in all implemented functions. 
+
+\begin{verbatim}
+> compare2Graphs(list(graph1, graph2))
+\end{verbatim}
+
+\subsubsection{Function: get.edges()}
+The function \Rfunction{get.edges()} needs an \Rclass{Ragraph} object  (returned from the function \Rfunction{compare2Graphs()})
+ and one color from the color list, which is used by the function \Rfunction{compare2Graphs()} to color the edges of the comparative graph, 
+as input parameters (both parameters are necessary). This function returns edges of the given \Rclass{Ragraph} 
+object that are colored with the given color.
+
+\subsubsection{Function: get.hubs()}
+The function \Rfunction{get.hubs()} needs an \Rclass{Ragraph} object (returned from the function \Rfunction{compare2Graphs()}),
+one color from the color list, which is used by the function \Rfunction{compare2Graphs()} to color the edges of the comparative
+graph and a threshold value p (value between 1 and 100, default: 20) as input parameters. This function returns nodes which highly 
+interact, the hubs. A node is considered a hub if it is incident to at least p percent of the total number of edges in the
+comparative graph. In contrast to the function \Rfunction{getMixed.hubs()}, this function returns hubs incident to edges
+colored with the given color only.
+
+\subsubsection{Function: getMixed.hubs()}
+The function \Rfunction{getMixed.hubs()} is similar to the function \Rfunction{get.hubs()}, however it returns hubs incident to 
+edges colored with at least two colors. Therefore, the color parameter is not necessary. 
+
+\subsection{Function: compGraphs.vis()}
+The function \Rfunction{compGraphs.vis()} needs only the mandatory parameter \textit{graphList}. The other optional parameters 
+could be passed via the control panel that appears after calling the function. The control panel is constructed using functions
+from the \Rpackage{rpanel} package \cite{Bowman2007}. Additionally to the visualization of the 
+comparative graph, this function enables the visualization of the graph with edges that exist in only one of the compared graphs
+and the graph with common edges only. In this way, a side-by-side visual comparison of graphs is also provided.  
+
+\subsection{Function: compGraphs.interactive()}
+The function \Rfunction{compGraphs.interactive()} needs at least the mandatory parameter \textit{graphList} (list of two 
+\Rclass{graphNEL} graphs). For more details about the optional parameters, see the help files.
+Additionally to the visualization of the comparative graph, this function offers the user the possibility 
+to click on any node to visualize the subgraph with the clicked node and its direct neighbors in a new window. 
+%\section{Comparing Graphs}
+%\subsection{Function: compare2Graphs()}
+
+
+\section{Graphical comparison}
+Now the generated graphs in section ~\ref{sec:EstimateGr} will be compared with the implemented methods in the \Rpackage{graphComp} package.
+%\subsubsection{For B-cell ALL data}
+\subsection{Function: compare2Graphs}
+\subsubsection{Comparison of the \Rpackage{GeneNet} and PC graphs}
+The following code chunk compares the \Rpackage{GeneNet} and PC graphs. The returned \Rclass{Ragraph} graph from the function \Rfunction{compare2Graphs()}
+is \Robject{Ragr}. 
+<<compare2Graphs1, fig=FALSE,  keep.source=TRUE>>=
+library(graphComp)
+Ragr <- compare2Graphs(list(geneNetGr, pcGr), cexx=1.5, 
+graphTitle="The comparative graph of the GeneNet and PC graphs",
+legendGr1="Edges of GeneNet graph", 
+legendGr2="Edges of the PC graph")
+@
+The resulting graph is visualized in Figure~\ref{fig: geneNetGr / pcGr}. The \Rpackage{GeneNet} and PC graphs have 8 edges in common that 
+are colored red. The edges of PC graph are colored green. There are no edges that exist only in the \Rpackage{GeneNet} graph and
+ do not exist in the PC graph, therefore the color for these edges is missing in the comparative graph. The nodes are represented as 
+ pie charts to illustrate the proportion of colored edges that are incident to each node.
+\begin{figure}[htp]
+<<compare2Graphs1, fig=TRUE, echo=F, results=hide>>=
+compare2Graphs(list(geneNetGr, pcGr), cexx=1.5, 
+graphTitle="The comparative graph of the GeneNet and PC graphs",  
+legendGr1="Edges of GeneNet graph", 
+legendGr2="Edges of PC graph")
+@
+\caption{The comparative graph of \Rpackage{GeneNet} and PC graphs}
+\label{fig: geneNetGr / pcGr}
+\end{figure}
+\subsubsection{Comparison of the PC and \Rpackage{glasso} graphs}
+The following code chunk compares the PC and \Rpackage{glasso} graphs.
+<<compare2Graphs2, fig=FALSE,  keep.source=TRUE>>=
+compare2Graphs(list(pcGr, lassoGr), cexx=1.5,
+graphTitle="The comparative graph of the PC and glasso graphs",
+legendGr1="Edges of PC",legendGr2="Edges of glasso graph",
+legendPosition="bottomleft")
+@
+The resulting graph is visualized in Figure~\ref{fig: pcGr / lassoGr}. The graphs of PC and \Rpackage{glasso} have 29 edges in common
+and other edges that exist only in one of the graphs. Therefore, the edges of the comparative graph are colored with three colors: 
+red for common edges, blue for edges of the PC graph and green for edges of the \Rpackage{glasso} graph.    
+\begin{figure}[htp]
+<<compare2Graphs2, fig=TRUE, echo=F, results=hide>>=
+compare2Graphs(list(pcGr, lassoGr), cexx=1.5,  
+graphTitle="The comparative graph of the PC and glasso graphs", 
+legendGr1="Edges of PC graph",legendGr2="Edges of glasso graph", 
+legendPosition="bottomleft")
+@
+\caption{The comparative graph of PC and \Rpackage{glasso} graphs}
+\label{fig: pcGr / lassoGr}
+\end{figure}
+\subsubsection{Comparison of the \Rpackage{GeneNet} and \Rpackage{glasso} graphs} 
+The following code chunk compares the \Rpackage{GeneNet} and \Rpackage{glasso} graphs. The \Rpackage{GeneNet} and \Rpackage{glasso} graphs have 8 edges in common that 
+are colored red. The edges of \Rpackage{glasso} graph are colored green. There are no edges that exist only in the \Rpackage{GeneNet} graph and
+ do not exist in the \Rpackage{glasso} graph, therefore the color for these edges is missing in the comparative graph.
+<<compare2Graphs3, fig=FALSE, keep.source=TRUE>>=
+compare2Graphs(list(geneNetGr, lassoGr), cexx=1.5,
+graphTitle="The comparative graph of the GeneNet and glasso graphs", 
+legendGr1="Edges of GeneNet graph",
+legendGr2="Edges of glasso graph")
+@
+The resulting graph is visualized in Figure~\ref{fig: geneNetGr / lassoGr}. 
+\begin{figure}[htp]
+<<compare2Graphs3, fig=TRUE, echo=F, results=hide>>=
+compare2Graphs(list(geneNetGr, lassoGr), cexx=1.5, 
+graphTitle="The comparative graph of the GeneNet and glasso graphs",  
+legendGr1="Edges of GeneNet graph",
+legendGr2="Edges of glasso graph")       
+@
+\caption{The comparative graph of \Rpackage{GeneNet} and \Rpackage{glasso}}
+\label{fig: geneNetGr / lassoGr}
+\end{figure}
+
+In the following, the returned graph from \Rfunction{compare2Graphs()} by the comparison of \Rpackage{GeneNet} and PC graphs
+is given as parameter to the functions \Rfunction{get.edges()}, \Rfunction{get.hubs()} and \Rfunction{getMixed.hubs()}.
+\subsubsection{Function: get.edges()}
+<<options1, echo=F>>=
+options(width=70)
+@
+The function \Rfunction{get.edges()} is called with the returned graph from \Rfunction{compare2Graphs()} by the comparison of 
+\Rpackage{GeneNet} and PC graphs and the color blue as parameters  to get edges that exist only in the \Rpackage{GeneNet} graph.
+The returned value is NULL because there are no edges that are present only in the \Rpackage{GeneNet} graph, see Figure~\ref{fig: geneNetGr / pcGr} 
+<<get.edges1>>=
+get.edges(Ragr, EdgColor="blue")
+@
+The following function call returns edges of the PC graph.
+<<get.edges2>>=
+get.edges(Ragr, EdgColor="green4")
+@
+Finally we get common edges of \Rpackage{GeneNet} and PC graphs as follows: 
+<<get.edges3>>=
+get.edges(Ragr, EdgColor="red")
+@
+\subsubsection{Function: get.hubs()}
+<<options2, echo=F>>=
+options(width=70)
+@
+The function \Rfunction{get.hubs()} is used here to get hubs that are present in the \Rpackage{GeneNet} graph only. In the following, the
+value p is used to define a node as a hub, p=30 means that a node will be considered as a hub if it is incident to at least 30 percent
+edges of the total number of edges in the comparative graph. It is expected that there are no hubs in the \Rpackage{GeneNet} graph, 
+because there are no edges of this graph in the comparative graph (blue edges), see Figure~\ref{fig: geneNetGr / pcGr} .  
+<<get.hubs1>>=
+get.hubs(Ragr,color="blue", p=30)
+@
+To get hubs (incident to at least 30 percent edges) that exist in the PC graph only, the function \Rfunction{get.hubs()} is called 
+with the corresponding color.  
+<<get.hubs11>>=
+get.hubs(Ragr, color="green4", p=30)
+@
+There are no hubs with the threshold p=30, this value is decreased from 30 to 5.
+<<get.hubs111>>=
+get.hubs(Ragr, color="green4", p=5)
+@
+The numbers under the nodes are the degrees of these nodes in the comparative graph.
+<<options3, echo=F>>=
+options(width=70)
+@
+To get hubs that are present in the \Rpackage{GeneNet} and PC graphs, the function \Rfunction{get.hubs()} is called with the color red
+as parameter.
+<<get.hubs2>>=
+get.hubs(Ragr, color="red", p=30)
+get.hubs(Ragr, color="red", p=5)
+@
+
+\subsubsection{Function: getMixed.hubs()}
+In contrast to the function \Rfunction{get.hubs()}, the function \Rfunction{getMixed.hubs()} returns hubs incident to edges 
+colored with at least two colors.
+<<getMixed.hubs1>>=                                                                          
+getMixed.hubs(Ragr, p=30)                                                                    
+getMixed.hubs(Ragr, p=5)
+@
+By decreasing the threshold to define hubs from 30 to 5, the function returns some hubs. The printed matrix illustrates the 
+number of colored edges that are incident to each hub.
+\subsection{Function: compGraphs.vis()}
+To illustrate the functionality of the function \Rfunction{compGraphs.vis()}, the graphs estimated with PC-Algorithm and
+\Rpackage{glasso} will be compared.
+\begin{verbatim}
+> compGraphs.vis(list(pcGr, lassoGr))
+\end{verbatim}
+
+After calling the function, the control panel in Figure ~\ref{fig:gui} will appear. Pressing the button \textit{The comparative graph} will
+plot the same graph as that visualized in Figure~\ref{fig: pcGr / lassoGr}. Pressing the buttons \textit{Graph1, Graph2 and Common graph} 
+will plot the graphs visualized in Figures ~\ref{fig:graph1}, ~\ref{fig:graph2} and ~\ref{fig:comGr} respectively.
+\begin{figure}[h]
+	\centering
+		\includegraphics{fig/gui2.pdf}
+    \caption{The created control panel with the function \Rfunction{compGraphs.vis()}}
+		\label{fig:gui}
+\end{figure}
+
+\begin{figure}[h]
+	\centering
+		\includegraphics{fig/graph1.pdf}
+    \caption{The graph with edges of PC graph only}
+		\label{fig:graph1}
+\end{figure}
+
+\begin{figure}[h]
+	\centering
+		\includegraphics{fig/graph2.pdf}
+    \caption{The graph with edges of \Rpackage{glasso} graph only}
+		\label{fig:graph2}
+\end{figure}
+
+\begin{figure}[h]
+	\centering
+		\includegraphics{fig/commonGraph.pdf}
+    \caption{The graph with common edges}
+		\label{fig:comGr}
+\end{figure}
+
+
+\subsection{Function: compGraphs.interactive()}
+The following code compares the estimated graphs with PC-Algorithm and \Rpackage{glasso}. The resulted comparative graph is the same 
+as that visualized in Figure~\ref{fig: pcGr / lassoGr}. Clicking on the node \textbf{CASP8} for example results in plotting the subgraph with the 
+direct neighbours of this node in a new window. The resulted subgraph is visualized in Figure~\ref{fig:subGr}.
+\begin{verbatim}
+> compGraphs.interactive(list(pcGr, lassoGr),
+graphTitle="The comparative graph of the PC and glasso graphs",
+legendGr1="Edges of the PC graph",
+legendGr2="Edges of the glasso graph")
+\end{verbatim}
+
+\begin{figure}[h]
+	\centering
+		\includegraphics{fig/subGraph.pdf}
+    \caption{The plotted subgraph with the function \Rfunction{compGraphs.interactive()} by clicking on the node \textbf{CASP8} }
+		\label{fig:subGr}
+\end{figure}
+
+\section{Summary} 
+This article proposes the new package \Rpackage{graphComp} for visual comparison of graphs defined on the same set of nodes. To 
+illustrate how this package could be used, estimated graphs for a real data set to B-cell ALL data are compared. The graphs are 
+estimated with the packages \Rpackage{GeneNet}, \Rpackage{pcalg} and \Rpackage{glasso}. The estimated graphs have more different edges
+than common edges. Table~\ref{tab:algComp} summarizes the edges found with each of the three algorithms and the common edges. 
+An important question is: which of these gene interactions represent trustworthy biological relationships?
+
+\begin{center}
+    \begin{longtable}{|p{3cm}|p{13cm}|}    
+    \hline   
+  %\textbf{Edges found by the 3 algorithms}
+   \begin{verbatim} 
+     
+ Edges found 
+ with the
+ three 
+ algorithms
+    \end{verbatim}
+   &  
+ \begin{verbatim}
+"CDC2~CCNB1" "CCNB2~CCNB1" "CYCS~CDK4" "SERPINE1~CDK6" 
+"GADD45B~CDKN1A" "GADD45G~GADD45B" "PPM1D~SIAH1" 
+"RCHY1~TNFRSF10B"
+\end{verbatim} \\ \hline
+ 
+  %\textbf{Edges found by glasso}
+ \begin{verbatim}
+ 
+ Edges found
+ with glasso 
+ \end{verbatim}
+  & 
+\begin{verbatim}
+"CASP8~ATM" "CCNG2~ATR" "CDK2~ATR" "MDM4~ATR" "CYCS~CCNB2"        
+"CCNB2~ATR" "CCNE2~ATR" "CYCS~ATR" "PMAIP1~SERPINE1"       
+"PMAIP1~BAX" "CCND2~BID" "GADD45A~BID" "GADD45A~CCNG1"    
+"CCNB1~CASP8" "CCND2~CASP8" "CCNG2~CASP8" "CDKN1A~CASP3"      
+"GADD45A~CASP8" "PMAIP1~CASP8" "SIAH1~CASP8" "PPM1D~CASP8"     
+"TNFRSF10B~CASP8" "CCNE2~CASP8" "RCHY1~CASP8" "CYCS~CASP8"      
+"CDK4~CCNB1" "PMAIP1~CCNB1" "CYCS~CCNB1" "CCND3~CCND2"     
+"CCNG1~CCND2" "CCNG2~CCND2" "DDB2~CCND2" "PMAIP1~CCNG2"      
+"SERPINE1~CCND2" "GADD45B~CCND3" "CDKN1A~CCNG1" "CDK4~CASP8"  
+"GADD45B~CCNG1" "PMAIP1~CCNG1" "GADD45B~CCNG2" "MDM4~CCND2"     
+"PTEN~CCNG2" "CCNB2~CDC2" "CCNB2~CDK4" "GADD45B~GADD45A"   
+"SIAH1~CDKN1A" "PPM1D~CDKN1A" "MDM4~GADD45A" "PMAIP1~CDKN1A"
+"SERPINE1~GADD45B" "TP53~GADD45B" "PPM1D~GADD45B" "CASP8~BAX"
+"PPM1D~PMAIP1" "CCNE2~PPM1D" "CCNE2~CCNB2" "EI24~CCNB2"      
+    \end{verbatim} \\  \hline   
+  
+ %\textbf{Edges found by PC}
+ \begin{verbatim}
+  
+ Edges found 
+ with 
+ PC-Algorithm
+ \end{verbatim}
+ & 
+    \begin{verbatim}
+"CCNG1~CCND1" "GADD45G~CCND1" "CYCS~BID" "PTEN~CDK2"   
+"SFN~CASP9" "TSC2~CASP9" "CCNB2~CCNE1" "PPM1D~CASP3"    
+"CCNB2~CDK2" "CCNE2~CDK2" "DDB2~CDK4" "SIAH1~PTEN"    
+"GTSE1~CDKN1A" "TSC2~DDB2" "TP53~MDM4" "TP53~CDK4"   
+"RCHY1~TSC2" "RCHY1~PPM1D" "GTSE1~CCNB2" "GTSE1~CCNE2" 
+ \end{verbatim} \\  \hline 
+   
+%\textbf{Edges found by glasso and PC}
+ \begin{verbatim}
+ 
+ Edges found 
+ with glasso 
+ and 
+ PC-Algorithm
+ \end{verbatim}
+& 
+ \begin{verbatim}
+"CCNG2~ATM" "PMAIP1~ATM" "BAX~ATR" "CCNG1~ATR" "PTEN~ATR"
+"EI24~ATR" "MDM4~BAX" "CCNE2~BAX" "CASP8~CASP3" "PTEN~CASP8"
+"TP53~CASP8" "GADD45A~CCND2" "TNFRSF10B~CCND2" "DDB2~CCND3" 
+"TP53~CCND3" "SIAH1~CCNG2" "RCHY1~CCNG2" "PMAIP1~GADD45A" 
+"CCNE2~GADD45A" "PMAIP1~GADD45B" "SIAH1~PMAIP1" 
+ \end{verbatim} \\  \hline
+
+
+\caption{The edges found with the three algorithms}
+\label{tab:algComp}
+\end{longtable}
+
+\end{center}
+
+%	\caption{Parameters for the compare2Graphs() algorithm and their default values}
+%	\label{tab:defVal}
+
+
+
+
+
+
+\section{SessionInfo}
+This document was produced using
+<<options4, echo=F>>=
+options(width=70)
+@
+<<sessioninfo, echo=F>>=
+sessionInfo()
+@
+%\section{Summary}
+%This article presents the estimation of graphs with the three packages: \Rpackage{GeneNet}, \Rpackage{pcalg} and \Rpackage{glasso}. 
+%For \Rpackage{glasso} a function \Rfunction{lassoGraph()} to estimate graphs for the given matrix with \Rfunction{glasso()} was 
+%developed. The used data set is real and available in the package \Rpackage{ALL}. The B-cell ALL and T-cell ALL data was used to 
+%generate the graphs. We analysed only some genes of p53 signaling pathway. Furthermore we developed a function
+%\Rfunction{commonEdges()} to compare the estimated graphs. This function receives two graphs and two colors and returns one
+%graph with the edges of both graphs. In fact, the function takes the graph with the largest number of edges and adds the edges 
+%of the other graph. The resulting graph is the output graph, moreover, the function requires two colors to colore the common and
+%added edges and black for those of the original graph. Finally we compared the graphs with the functions \Rfunction{shd()} and 
+%\Rfunction{compareGraphs2()}.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}
+
